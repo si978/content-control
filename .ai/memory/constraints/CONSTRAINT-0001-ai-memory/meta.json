@@ -15,7 +15,7 @@
     ".ai/tools/",
     ".github/workflows/"
   ],
-  "verification_note": "Touched after memctl output-path fix to reset stale baseline.",
+  "verification_note": "Touched after AI PR gate/CODEOWNERS update to reset stale baseline.",
   "evidence": [
     {
       "kind": "repo_path",
