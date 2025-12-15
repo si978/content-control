@@ -4,15 +4,15 @@
   "agent_id": "agent-strict-test",
   "task_id": "TASK-2025-12-15-0001",
   "context": {
-    "pack_id": "0000000000000000000000000000000000000000000000000000000000000000",
-    "repo_commit": "1cfb86dd44eee21f673fc870c209c87304943a53",
+    "pack_id": "b8b9c72acf4b17dbf42df304e6704f4b50e72c5b671c1d79534697411d828bb3",
+    "repo_commit": "69478d091d469b6b2bd29c99bd7849787b9a32a3",
     "memory_tree": null
   },
   "changes": [
     {
       "path": ".ai/evidence/runs/RUN-STRICT-0001.agent_report.json",
-      "action": "add",
-      "reason": "strict test: intentionally wrong pack_id"
+      "action": "modify",
+      "reason": "strict test: now referencing a pack_id that is reproducible for repo_commit"
     }
   ],
   "validation": [
