@@ -101,6 +101,11 @@ jobs:
             python .ai/tools/memctl.py validate-report --report "$r" --task-id "$TASK"
             REPO_COMMIT="$(python -c "import json;print(json.load(open('$r','r',encoding='utf-8'))['context']['repo_commit'])")"
             PACK_ID="$(python -c "import json;print(json.load(open('$r','r',encoding='utf-8'))['context']['pack_id'])")"
+
+            # repo_commit must be within this PR’s history (prevents referencing unrelated packs).
+            git cat-file -e "$REPO_COMMIT^{commit}"
+            git merge-base --is-ancestor "$REPO_COMMIT" "$HEAD"
+
             python .ai/tools/memctl.py build-pack --commit "$REPO_COMMIT" --task-id "$TASK" --out ".ai/packs/_tmp_pack.json"
             PACK_ID_COMPUTED="$(python -c "import json;print(json.load(open('.ai/packs/_tmp_pack.json','r',encoding='utf-8'))['pack_id'])")"
             if [[ "$PACK_ID" != "$PACK_ID_COMPUTED" ]]; then
