@@ -15,7 +15,7 @@
     ".ai/tools/",
     ".github/workflows/"
   ],
-  "verification_note": "Touched after adding pack determinism checks in workflows to reset stale baseline.",
+  "verification_note": "Touched after fixing workflow determinism script quoting to reset stale baseline.",
   "supersedes": [],
   "evidence": [
     {

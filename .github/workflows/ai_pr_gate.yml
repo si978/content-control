@@ -96,10 +96,10 @@ jobs:
 
           ja = json.loads(a)
           jb = json.loads(b)
-          if ja.get(\"pack_id\") != jb.get(\"pack_id\"):
+          if ja.get("pack_id") != jb.get("pack_id"):
               raise SystemExit(f"context pack is non-deterministic (pack_id mismatch): {ja.get('pack_id')} vs {jb.get('pack_id')}")
 
-          print(f\"OK: deterministic pack_id={ja['pack_id']}\")
+          print(f"OK: deterministic pack_id={ja['pack_id']}")
           PY
 
       - name: Validate agent reports (soft/hard)

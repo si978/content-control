@@ -37,8 +37,8 @@ jobs:
           ha = hashlib.sha256(a).hexdigest()
           hb = hashlib.sha256(b).hexdigest()
           if ha != hb:
-              raise SystemExit(f\"non-deterministic build-pack output: {ha} vs {hb}\")
-          print(f\"OK: deterministic context pack output sha256={ha}\")
+              raise SystemExit(f"non-deterministic build-pack output: {ha} vs {hb}")
+          print(f"OK: deterministic context pack output sha256={ha}")
           PY
 
       - uses: actions/upload-artifact@v4
