@@ -3,8 +3,8 @@
   "pr_gate": {
     "label": "ai",
     "bypass_label": "ai-exempt",
-    "enforcement": "soft",
+    "enforcement": "hard",
     "require_task_id": true,
-    "require_agent_report": false
+    "require_agent_report": true
   }
 }

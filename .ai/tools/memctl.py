@@ -553,7 +553,7 @@ def main() -> int:
     p_pack.add_argument("--out", default="-")
     p_pack.set_defaults(func=cmd_build_pack)
 
-    p_rep = sub.add_parser("validate-report", help="validate agent_report.json basics")
+    p_rep = sub.add_parser("validate-report", help="validate agent_report.json (basic schema)")
     p_rep.add_argument("--report", required=True)
     p_rep.add_argument("--task-id")
     p_rep.set_defaults(func=cmd_validate_report)
