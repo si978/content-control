@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "CONSTRAINT-TEST-0001",
+  "type": "constraint",
+  "status": "active",
+  "title": "TEST: conflicting constraint.key (should fail)",
+  "key": "ai-memory-v1-constraints",
+  "scope": {
+    "paths": [
+      "**"
+    ]
+  },
+  "evidence": [
+    {
+      "kind": "repo_path",
+      "ref": ".ai/evidence/conversations/2025-12-15-ai-memory-design.md"
+    }
+  ]
+}
