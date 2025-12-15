@@ -86,6 +86,14 @@ def _path_exists(commit: str, path: str) -> bool:
     return ok
 
 
+def _object_type(commit: str, path: str) -> Optional[str]:
+    ok, out = _git_ok(["cat-file", "-t", f"{commit}:{path}"])
+    if not ok:
+        return None
+    t = out.strip()
+    return t if t else None
+
+
 def _read_path(commit: str, path: str) -> bytes:
     return _git_bytes(["show", f"{commit}:{path}"])
 
@@ -112,9 +120,21 @@ def _norm_rel_path(path: str) -> str:
     path = path.strip().replace("\\", "/")
     while path.startswith("/"):
         path = path[1:]
-    if path == "" or path.startswith("../") or "/../" in path:
+    if path == "":
         raise ValueError(f"invalid repo-relative path: {path!r}")
-    return path
+    if ":" in path:
+        raise ValueError(f"invalid repo-relative path: {path!r}")
+
+    parts: List[str] = []
+    for part in path.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            raise ValueError(f"invalid repo-relative path: {path!r}")
+        parts.append(part)
+    if not parts:
+        raise ValueError(f"invalid repo-relative path: {path!r}")
+    return "/".join(parts)
 
 
 def _is_active(item: MemoryItem) -> bool:
@@ -382,15 +402,20 @@ def build_pack(commit: str, task_id: str, items: List[MemoryItem], by_id: Dict[s
     for p in include_paths:
         p = _norm_rel_path(p)
 
-        if _path_exists(commit, p):
+        obj_type = _object_type(commit, p)
+        if obj_type == "blob":
             add_file("repo_file", p)
             continue
-
-        listed = _ls_tree(commit, p)
-        if not listed:
+        if obj_type == "tree":
+            listed = _ls_tree(commit, p)
+            if not listed:
+                raise RuntimeError(f"include_paths entry not found as file/dir at {commit}: {p}")
+            for fp in listed:
+                add_file("repo_file", fp)
+            continue
+        if obj_type is None:
             raise RuntimeError(f"include_paths entry not found as file/dir at {commit}: {p}")
-        for fp in listed:
-            add_file("repo_file", fp)
+        raise RuntimeError(f"include_paths entry must be blob or tree at {commit}: {p} (got {obj_type})")
 
     pack_items: List[Dict[str, Any]] = []
     manifest_for_id: List[str] = []
