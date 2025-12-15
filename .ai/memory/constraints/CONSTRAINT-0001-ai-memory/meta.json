@@ -15,6 +15,7 @@
     ".ai/tools/",
     ".github/workflows/"
   ],
+  "verification_note": "Touched after memctl output-path fix to reset stale baseline.",
   "evidence": [
     {
       "kind": "repo_path",
