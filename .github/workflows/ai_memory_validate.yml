@@ -32,3 +32,21 @@ jobs:
 
       - name: Check stale
         run: python .ai/tools/memctl.py check-stale --commit "${{ github.sha }}"
+
+      - name: Context pack determinism (seed task)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TASK="TASK-2025-12-15-0001"
+          python .ai/tools/memctl.py build-pack --commit "${{ github.sha }}" --task-id "$TASK" --out pack_1.json
+          python .ai/tools/memctl.py build-pack --commit "${{ github.sha }}" --task-id "$TASK" --out pack_2.json
+          python - <<'PY'
+          import hashlib
+          a = open("pack_1.json","rb").read()
+          b = open("pack_2.json","rb").read()
+          ha = hashlib.sha256(a).hexdigest()
+          hb = hashlib.sha256(b).hexdigest()
+          if ha != hb:
+              raise SystemExit(f\"non-deterministic build-pack output: {ha} vs {hb}\")
+          print(f\"OK: deterministic context pack output sha256={ha}\")
+          PY

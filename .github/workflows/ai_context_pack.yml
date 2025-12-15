@@ -29,6 +29,17 @@ jobs:
           COMMIT="${{ inputs.commit }}"
           if [ -z "$COMMIT" ]; then COMMIT="${{ github.sha }}"; fi
           python .ai/tools/memctl.py build-pack --commit "$COMMIT" --task-id "${{ inputs.task_id }}" --out "context_pack.json"
+          python .ai/tools/memctl.py build-pack --commit "$COMMIT" --task-id "${{ inputs.task_id }}" --out "context_pack_2.json"
+          python - <<'PY'
+          import hashlib
+          a = open("context_pack.json","rb").read()
+          b = open("context_pack_2.json","rb").read()
+          ha = hashlib.sha256(a).hexdigest()
+          hb = hashlib.sha256(b).hexdigest()
+          if ha != hb:
+              raise SystemExit(f\"non-deterministic build-pack output: {ha} vs {hb}\")
+          print(f\"OK: deterministic context pack output sha256={ha}\")
+          PY
 
       - uses: actions/upload-artifact@v4
         with:

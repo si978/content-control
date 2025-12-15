@@ -68,6 +68,40 @@ jobs:
         if: steps.cfg.outputs.should_enforce == 'true'
         run: python .ai/tools/memctl.py build-pack --commit "${{ github.event.pull_request.head.sha }}" --task-id "${{ steps.task.outputs.task_id }}" --out context_pack_PR_HEAD.json
 
+      - name: Verify pack determinism
+        if: steps.cfg.outputs.should_enforce == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          TASK="${{ steps.task.outputs.task_id }}"
+
+          python .ai/tools/memctl.py build-pack --commit "$HEAD" --task-id "$TASK" --out context_pack_PR_HEAD_2.json
+
+          python - <<'PY'
+          import hashlib, json
+
+          def read_bytes(path: str) -> bytes:
+              with open(path, "rb") as f:
+                  return f.read()
+
+          a = read_bytes("context_pack_PR_HEAD.json")
+          b = read_bytes("context_pack_PR_HEAD_2.json")
+
+          sha_a = hashlib.sha256(a).hexdigest()
+          sha_b = hashlib.sha256(b).hexdigest()
+          if sha_a != sha_b:
+              raise SystemExit(f"context pack is non-deterministic (sha256 mismatch): {sha_a} vs {sha_b}")
+
+          ja = json.loads(a)
+          jb = json.loads(b)
+          if ja.get(\"pack_id\") != jb.get(\"pack_id\"):
+              raise SystemExit(f"context pack is non-deterministic (pack_id mismatch): {ja.get('pack_id')} vs {jb.get('pack_id')}")
+
+          print(f\"OK: deterministic pack_id={ja['pack_id']}\")
+          PY
+
       - name: Validate agent reports (soft/hard)
         if: steps.cfg.outputs.should_enforce == 'true'
         shell: bash
