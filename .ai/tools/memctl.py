@@ -435,7 +435,9 @@ def _write_json(obj: Dict[str, Any], out_path: str) -> None:
     if out_path == "-" or out_path.strip() == "":
         sys.stdout.buffer.write(data)
         return
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    out_dir = os.path.dirname(out_path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     with open(out_path, "wb") as f:
         f.write(data)
 
