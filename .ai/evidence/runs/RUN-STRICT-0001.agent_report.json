@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "run_id": "RUN-STRICT-0001",
+  "agent_id": "agent-strict-test",
+  "task_id": "TASK-2025-12-15-0001",
+  "context": {
+    "pack_id": "0000000000000000000000000000000000000000000000000000000000000000",
+    "repo_commit": "f7258eb23618da58bb2fab253919f622725341cd",
+    "memory_tree": null
+  },
+  "changes": [
+    {
+      "path": ".ai/evidence/runs/RUN-STRICT-0001.agent_report.json",
+      "action": "add",
+      "reason": "strict test: intentionally wrong pack_id"
+    }
+  ],
+  "validation": [
+    {
+      "name": "none",
+      "status": "skipped",
+      "reason": "strict test"
+    }
+  ],
+  "memory_updates": []
+}
