@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "CONSTRAINT-0001",
+  "type": "constraint",
+  "status": "active",
+  "title": "AI 记忆与一致性硬约束（V1）",
+  "key": "ai-memory-v1-constraints",
+  "scope": {
+    "paths": [
+      "**"
+    ]
+  },
+  "watch_paths": [
+    ".ai/memory/",
+    ".ai/tools/",
+    ".github/workflows/"
+  ],
+  "evidence": [
+    {
+      "kind": "repo_path",
+      "ref": ".ai/evidence/conversations/2025-12-15-ai-memory-design.md"
+    }
+  ],
+  "constraints": {
+    "memory_root": ".ai/memory/",
+    "memory_write_via_pr_only": true,
+    "context_pack_must_embed_file_content": true,
+    "context_pack_must_be_deterministic": true
+  }
+}

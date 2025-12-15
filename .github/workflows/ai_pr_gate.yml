@@ -1,0 +1,116 @@
+name: AI PR Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+
+jobs:
+  gate:
+    # Avoid “misfire”: only run when PR has label `ai`.
+    if: contains(github.event.pull_request.labels.*.name, 'ai')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Read config and labels
+        id: cfg
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            let cfg = {
+              pr_gate: { label: "ai", bypass_label: "ai-exempt", enforcement: "soft", require_task_id: true, require_agent_report: false }
+            };
+            try {
+              cfg = JSON.parse(fs.readFileSync(".ai/config.json", "utf8"));
+            } catch (e) {
+              core.warning(`Cannot read .ai/config.json, using defaults: ${e}`);
+            }
+            const labels = (context.payload.pull_request.labels || []).map(l => l.name);
+            const bypass = cfg?.pr_gate?.bypass_label || "ai-exempt";
+            const shouldEnforce = !labels.includes(bypass);
+            core.setOutput("should_enforce", shouldEnforce ? "true" : "false");
+            core.setOutput("enforcement", cfg?.pr_gate?.enforcement || "soft");
+            core.setOutput("require_task_id", String(cfg?.pr_gate?.require_task_id !== false));
+            core.setOutput("require_agent_report", String(cfg?.pr_gate?.require_agent_report === true));
+            core.setOutput("bypass_label", bypass);
+
+      - name: Bypass notice
+        if: steps.cfg.outputs.should_enforce != 'true'
+        run: echo "Bypassed AI gate due to label ${{ steps.cfg.outputs.bypass_label }}."
+
+      - name: Extract Task ID from PR body
+        if: steps.cfg.outputs.should_enforce == 'true' && steps.cfg.outputs.require_task_id == 'true'
+        id: task
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || "";
+            const m = body.match(/Task ID:\s*(TASK-[A-Za-z0-9-]+)/);
+            if (!m) core.setFailed("Missing `Task ID: TASK-...` in PR body (required for label=ai).");
+            else core.setOutput("task_id", m[1]);
+
+      - name: Validate memory
+        if: steps.cfg.outputs.should_enforce == 'true'
+        run: python .ai/tools/memctl.py validate --commit "${{ github.sha }}"
+
+      - name: Check stale
+        if: steps.cfg.outputs.should_enforce == 'true'
+        run: python .ai/tools/memctl.py check-stale --commit "${{ github.sha }}"
+
+      - name: Build pack for PR HEAD (artifact)
+        if: steps.cfg.outputs.should_enforce == 'true'
+        run: python .ai/tools/memctl.py build-pack --commit "${{ github.event.pull_request.head.sha }}" --task-id "${{ steps.task.outputs.task_id }}" --out context_pack_PR_HEAD.json
+
+      - name: Validate agent reports (soft/hard)
+        if: steps.cfg.outputs.should_enforce == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          TASK="${{ steps.task.outputs.task_id }}"
+          ENFORCEMENT="${{ steps.cfg.outputs.enforcement }}"
+          REQUIRE_REPORT="${{ steps.cfg.outputs.require_agent_report }}"
+
+          reports=()
+          while IFS= read -r f; do
+            [[ -n "$f" ]] || continue
+            [[ "$f" == *.agent_report.json ]] || continue
+            [[ -f "$f" ]] || continue
+            reports+=("$f")
+          done < <(git diff --name-only "$BASE...$HEAD" -- .ai/evidence/runs/)
+
+          if [[ "${#reports[@]}" -eq 0 ]]; then
+            if [[ "$ENFORCEMENT" == "hard" || "$REQUIRE_REPORT" == "true" ]]; then
+              echo "No .ai/evidence/runs/*.agent_report.json changed in this PR (required)." >&2
+              exit 1
+            fi
+            echo "WARN: no agent_report.json changed (soft mode)." >&2
+            exit 0
+          fi
+
+          for r in "${reports[@]}"; do
+            python .ai/tools/memctl.py validate-report --report "$r" --task-id "$TASK"
+            REPO_COMMIT="$(python -c "import json;print(json.load(open('$r','r',encoding='utf-8'))['context']['repo_commit'])")"
+            PACK_ID="$(python -c "import json;print(json.load(open('$r','r',encoding='utf-8'))['context']['pack_id'])")"
+            python .ai/tools/memctl.py build-pack --commit "$REPO_COMMIT" --task-id "$TASK" --out ".ai/packs/_tmp_pack.json"
+            PACK_ID_COMPUTED="$(python -c "import json;print(json.load(open('.ai/packs/_tmp_pack.json','r',encoding='utf-8'))['pack_id'])")"
+            if [[ "$PACK_ID" != "$PACK_ID_COMPUTED" ]]; then
+              echo "Agent report pack_id mismatch for $r: expect $PACK_ID_COMPUTED, got $PACK_ID" >&2
+              exit 1
+            fi
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: steps.cfg.outputs.should_enforce == 'true'
+        with:
+          name: context_pack_${{ steps.task.outputs.task_id }}_${{ github.event.pull_request.head.sha }}
+          path: context_pack_PR_HEAD.json

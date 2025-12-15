@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "pr_gate": {
+    "label": "ai",
+    "bypass_label": "ai-exempt",
+    "enforcement": "soft",
+    "require_task_id": true,
+    "require_agent_report": false
+  }
+}

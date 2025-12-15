@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "TASK-2025-12-15-0001",
+  "type": "task",
+  "status": "active",
+  "title": "AI 项目长期记忆/一致性管理 V1",
+  "goal": "在 GitHub 仓库内建立可追溯的长期记忆与确定性的上下文包构建机制，使多个 Agent 获得一致视角与约束。",
+  "non_goals": [
+    "不做向量库/外部数据库检索",
+    "不做自动合并/自动发布（先 PR + CI 门禁）"
+  ],
+  "acceptance_criteria": [
+    "同一 commit + task_id，两次 build-pack 生成的 context_pack.json SHA256 一致",
+    "active/accepted 记忆必须包含 evidence，否则 validate 失败",
+    "constraint.key 与 adr.topic 发生冲突时 validate 失败",
+    "watch_paths 变更导致 stale；无 stale_exemption.reason 时 check-stale 失败"
+  ],
+  "pack": {
+    "include_memory_ids": [
+      "ADR-0001",
+      "CONSTRAINT-0001"
+    ],
+    "include_paths": [
+      ".ai/README.md",
+      ".ai/config.json",
+      ".ai/schemas/agent_report.schema.json",
+      ".ai/tools/memctl.py",
+      ".github/workflows/ai_memory_validate.yml",
+      ".github/workflows/ai_context_pack.yml",
+      ".github/workflows/ai_pr_gate.yml",
+      ".github/PULL_REQUEST_TEMPLATE/ai.md",
+      "CODEOWNERS",
+      ".gitignore",
+      "README.md"
+    ]
+  },
+  "evidence": [
+    {
+      "kind": "repo_path",
+      "ref": ".ai/evidence/conversations/2025-12-15-ai-memory-design.md"
+    }
+  ]
+}

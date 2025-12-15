@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "ADR-0001",
+  "type": "adr",
+  "status": "accepted",
+  "title": "Repo-first 记忆与确定性 Context Pack",
+  "topic": "ai-memory-storage-and-consistency",
+  "scope": {
+    "paths": [
+      ".ai/",
+      ".github/workflows/"
+    ]
+  },
+  "watch_paths": [
+    ".ai/tools/",
+    ".github/workflows/"
+  ],
+  "supersedes": [],
+  "evidence": [
+    {
+      "kind": "repo_path",
+      "ref": ".ai/evidence/conversations/2025-12-15-ai-memory-design.md"
+    }
+  ]
+}

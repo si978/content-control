@@ -1,0 +1,34 @@
+name: AI Memory Validate
+
+on:
+  pull_request:
+    paths:
+      - ".ai/**"
+      - ".github/workflows/ai_*.yml"
+      - "CODEOWNERS"
+      - ".gitignore"
+  push:
+    branches: ["main"]
+    paths:
+      - ".ai/**"
+      - ".github/workflows/ai_*.yml"
+      - "CODEOWNERS"
+      - ".gitignore"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate memory
+        run: python .ai/tools/memctl.py validate --commit "${{ github.sha }}"
+
+      - name: Check stale
+        run: python .ai/tools/memctl.py check-stale --commit "${{ github.sha }}"

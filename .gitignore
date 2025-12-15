@@ -1,0 +1,6 @@
+.ai/packs/
+.ai/state/
+context_pack*.json
+*.pyc
+__pycache__/
+.DS_Store

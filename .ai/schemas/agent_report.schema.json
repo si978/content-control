@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "agent_report",
+  "type": "object",
+  "required": ["schema_version", "run_id", "agent_id", "task_id", "context", "changes", "validation"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "agent_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "context": {
+      "type": "object",
+      "required": ["pack_id", "repo_commit"],
+      "properties": {
+        "pack_id": { "type": "string", "minLength": 1 },
+        "repo_commit": { "type": "string", "minLength": 7 },
+        "memory_tree": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "action"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "action": { "type": "string", "enum": ["add", "modify", "delete", "rename"] },
+          "reason": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "validation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["pass", "fail", "skipped"] },
+          "command": { "type": "string" },
+          "exit_code": { "type": "integer" },
+          "reason": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "memory_updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "action"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "action": { "type": "string", "enum": ["add", "modify", "none"] }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

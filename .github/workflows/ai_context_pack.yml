@@ -1,0 +1,36 @@
+name: Build AI Context Pack
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: "Task ID (e.g. TASK-2025-12-15-0001)"
+        required: true
+      commit:
+        description: "Commit/ref to build from (default: workflow sha)"
+        required: false
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build pack
+        shell: bash
+        run: |
+          COMMIT="${{ inputs.commit }}"
+          if [ -z "$COMMIT" ]; then COMMIT="${{ github.sha }}"; fi
+          python .ai/tools/memctl.py build-pack --commit "$COMMIT" --task-id "${{ inputs.task_id }}" --out "context_pack.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: context_pack_${{ inputs.task_id }}_${{ github.sha }}
+          path: context_pack.json

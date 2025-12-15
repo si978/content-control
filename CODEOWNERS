@@ -1,0 +1,8 @@
+# Fill in your GitHub users/teams to require review for AI memory changes.
+# Examples:
+#   @your-username
+#   @your-org/ai-owners
+
+.ai/memory/              @your-org/ai-owners
+.ai/tools/               @your-org/ai-owners
+.github/workflows/ai_    @your-org/ai-owners
