@@ -7,11 +7,12 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 ALLOWED_TYPES = {"task", "adr", "constraint", "runbook", "component_map"}
 EVIDENCE_KINDS = {"repo_path", "pr", "issue", "url", "run", "chat"}
+PACK_ITEM_KINDS = {"memory_meta", "memory_body", "evidence", "repo_file"}
 
 TYPE_DIR = {
     "task": "tasks",
@@ -118,6 +119,8 @@ def _sha256_hex(data: bytes) -> str:
 
 def _norm_rel_path(path: str) -> str:
     path = path.strip().replace("\\", "/")
+    if "\x00" in path or any(ord(ch) < 32 for ch in path):
+        raise ValueError(f"invalid repo-relative path: {path!r}")
     while path.startswith("/"):
         path = path[1:]
     if path == "":
@@ -158,6 +161,8 @@ def load_memory(commit: str) -> Tuple[List[MemoryItem], Dict[str, MemoryItem]]:
             meta = json.loads(raw.decode("utf-8"))
         except Exception as e:
             raise RuntimeError(f"invalid json: {meta_path}: {e}") from e
+        if not isinstance(meta, dict):
+            raise RuntimeError(f"invalid json: {meta_path}: meta must be object")
 
         item_dir = meta_path[: -len("/meta.json")]
         body_path = f"{item_dir}/body.md" if _path_exists(commit, f"{item_dir}/body.md") else None
@@ -257,9 +262,18 @@ def validate_memory(commit: str, items: List[MemoryItem], by_id: Dict[str, Memor
                 if not isinstance(ref, str) or not ref.strip():
                     err(f"{item.meta_path}: evidence[{i}].ref must be non-empty string")
                 if kind == "repo_path" and isinstance(ref, str) and ref.strip():
-                    ref_path = _norm_rel_path(ref)
-                    if not _path_exists(commit, ref_path):
-                        err(f"{item.meta_path}: evidence[{i}].ref repo_path not found at {commit}: {ref_path}")
+                    try:
+                        ref_path = _norm_rel_path(ref)
+                    except Exception as e:
+                        err(f"{item.meta_path}: evidence[{i}].ref invalid repo_path: {e}")
+                        continue
+                    obj_type = _object_type(commit, ref_path)
+                    if obj_type not in ("blob", "tree"):
+                        err(
+                            f"{item.meta_path}: evidence[{i}].ref repo_path not found as file/dir at {commit}: {ref_path}"
+                            if obj_type is None
+                            else f"{item.meta_path}: evidence[{i}].ref repo_path must be blob/tree at {commit}: {ref_path} (got {obj_type})"
+                        )
 
         supersedes = meta.get("supersedes", [])
         if supersedes is not None and not isinstance(supersedes, list):
@@ -294,9 +308,40 @@ def validate_memory(commit: str, items: List[MemoryItem], by_id: Dict[str, Memor
             if pack is not None and not isinstance(pack, dict):
                 err(f"{item.meta_path}: pack must be object")
             if isinstance(pack, dict):
-                for k in ("include_memory_ids", "include_paths"):
-                    if k in pack and not isinstance(pack[k], list):
-                        err(f"{item.meta_path}: pack.{k} must be list")
+                include_memory_ids = pack.get("include_memory_ids", [])
+                include_paths = pack.get("include_paths", [])
+
+                if include_memory_ids is not None and not isinstance(include_memory_ids, list):
+                    err(f"{item.meta_path}: pack.include_memory_ids must be list")
+                    include_memory_ids = []
+                if include_paths is not None and not isinstance(include_paths, list):
+                    err(f"{item.meta_path}: pack.include_paths must be list")
+                    include_paths = []
+
+                if isinstance(include_memory_ids, list):
+                    for j, mid in enumerate(include_memory_ids):
+                        if not isinstance(mid, str) or not mid.strip():
+                            err(f"{item.meta_path}: pack.include_memory_ids[{j}] must be non-empty string")
+                        elif mid not in by_id:
+                            err(f"{item.meta_path}: pack.include_memory_ids[{j}] references missing id: {mid}")
+
+                if isinstance(include_paths, list):
+                    for j, p in enumerate(include_paths):
+                        if not isinstance(p, str) or not p.strip():
+                            err(f"{item.meta_path}: pack.include_paths[{j}] must be non-empty string")
+                            continue
+                        try:
+                            p_norm = _norm_rel_path(p)
+                        except Exception as e:
+                            err(f"{item.meta_path}: pack.include_paths[{j}] invalid path: {e}")
+                            continue
+                        obj_type = _object_type(commit, p_norm)
+                        if obj_type not in ("blob", "tree"):
+                            err(
+                                f"{item.meta_path}: pack.include_paths[{j}] not found as file/dir at {commit}: {p_norm}"
+                                if obj_type is None
+                                else f"{item.meta_path}: pack.include_paths[{j}] must be blob/tree at {commit}: {p_norm} (got {obj_type})"
+                            )
 
     return errors
 
@@ -313,13 +358,22 @@ def check_stale(commit: str, items: List[MemoryItem]) -> Tuple[List[str], List[s
 
         verified = item.meta.get("verified_commit", None)
         if isinstance(verified, str) and verified.strip():
-            verified_commit = _resolve_commit(verified.strip())
+            try:
+                verified_commit = _resolve_commit(verified.strip())
+            except Exception as e:
+                errors.append(f"{item.meta_path}: verified_commit invalid: {e}")
+                continue
         else:
             last = _last_touch_commit(commit, item.meta_path)
             if not last:
                 errors.append(f"{item.meta_path}: cannot determine last-touch commit for stale check")
                 continue
             verified_commit = last
+
+        ok, _ = _git_ok(["merge-base", "--is-ancestor", verified_commit, commit])
+        if not ok:
+            errors.append(f"{item.meta_path}: verified_commit {verified_commit} is not an ancestor of {commit}")
+            continue
 
         norm_paths: List[str] = []
         try:
@@ -394,10 +448,15 @@ def build_pack(commit: str, task_id: str, items: List[MemoryItem], by_id: Dict[s
                 if ev.get("kind") != "repo_path":
                     continue
                 ref = ev.get("ref", "")
-                if isinstance(ref, str) and ref.strip():
-                    ref_path = _norm_rel_path(ref)
-                    if ref_path.startswith(".ai/evidence/"):
-                        add_file("evidence", ref_path)
+                if not (isinstance(ref, str) and ref.strip()):
+                    continue
+                ref_path = _norm_rel_path(ref)
+                ref_type = _object_type(commit, ref_path)
+                if ref_type == "blob":
+                    add_file("evidence", ref_path)
+                elif ref_type == "tree":
+                    for fp in _ls_tree(commit, ref_path):
+                        add_file("evidence", fp)
 
     for p in include_paths:
         p = _norm_rel_path(p)
@@ -421,6 +480,9 @@ def build_pack(commit: str, task_id: str, items: List[MemoryItem], by_id: Dict[s
     manifest_for_id: List[str] = []
 
     for kind, path in sorted(file_paths, key=lambda x: (x[0], x[1])):
+        obj_type = _object_type(commit, path)
+        if obj_type != "blob":
+            raise RuntimeError(f"pack path is not a file/blob at {commit}: {path} (got {obj_type})")
         data = _read_path(commit, path)
         blob = _blob_sha(commit, path)
         sha = _sha256_hex(data)
@@ -471,6 +533,10 @@ def _is_hex(s: str, n: int) -> bool:
     return bool(re.fullmatch(rf"[0-9a-f]{{{n}}}", s or ""))
 
 
+def _is_hex_range(s: str, min_n: int, max_n: int) -> bool:
+    return bool(re.fullmatch(rf"[0-9a-f]{{{min_n},{max_n}}}", s or ""))
+
+
 def validate_agent_report(data: Dict[str, Any], expect_task_id: Optional[str]) -> List[str]:
     errors: List[str] = []
 
@@ -499,15 +565,232 @@ def validate_agent_report(data: Dict[str, Any], expect_task_id: Optional[str]) -
 
     if not isinstance(pack_id, str) or not _is_hex(pack_id, 64):
         errors.append("context.pack_id must be 64-hex sha256 string")
-    if not isinstance(repo_commit, str) or not _is_hex(repo_commit, 40):
-        errors.append("context.repo_commit must be 40-hex git sha string")
-    if memory_tree not in (None, "") and (not isinstance(memory_tree, str) or not _is_hex(memory_tree, 40)):
-        errors.append("context.memory_tree must be 40-hex git sha string, null, or empty string")
+    if not isinstance(repo_commit, str) or not _is_hex_range(repo_commit, 7, 40):
+        errors.append("context.repo_commit must be 7-40 hex git sha string")
+    if memory_tree not in (None, "") and (not isinstance(memory_tree, str) or not _is_hex_range(memory_tree, 7, 40)):
+        errors.append("context.memory_tree must be 7-40 hex git sha string, null, or empty string")
 
-    for arr in ("changes", "validation"):
-        v = data.get(arr)
-        if not isinstance(v, list):
-            errors.append(f"{arr} must be list")
+    changes = data.get("changes")
+    if not isinstance(changes, list):
+        errors.append("changes must be list")
+    else:
+        for i, ch in enumerate(changes):
+            if not isinstance(ch, dict):
+                errors.append(f"changes[{i}] must be object")
+                continue
+            path = ch.get("path", "")
+            action = ch.get("action", "")
+            if not isinstance(path, str) or not path.strip():
+                errors.append(f"changes[{i}].path must be non-empty string")
+            else:
+                try:
+                    _norm_rel_path(path)
+                except Exception as e:
+                    errors.append(f"changes[{i}].path invalid: {e}")
+            if action not in ("add", "modify", "delete", "rename"):
+                errors.append(f"changes[{i}].action must be one of add/modify/delete/rename")
+
+    validation = data.get("validation")
+    if not isinstance(validation, list):
+        errors.append("validation must be list")
+    else:
+        for i, v in enumerate(validation):
+            if not isinstance(v, dict):
+                errors.append(f"validation[{i}] must be object")
+                continue
+            name = v.get("name", "")
+            status = v.get("status", "")
+            exit_code = v.get("exit_code", None)
+            if not isinstance(name, str) or not name.strip():
+                errors.append(f"validation[{i}].name must be non-empty string")
+            if status not in ("pass", "fail", "skipped"):
+                errors.append(f"validation[{i}].status must be one of pass/fail/skipped")
+            if exit_code is not None and not isinstance(exit_code, int):
+                errors.append(f"validation[{i}].exit_code must be integer when present")
+
+    memory_updates = data.get("memory_updates", None)
+    if memory_updates is not None:
+        if not isinstance(memory_updates, list):
+            errors.append("memory_updates must be list when present")
+        else:
+            for i, mu in enumerate(memory_updates):
+                if not isinstance(mu, dict):
+                    errors.append(f"memory_updates[{i}] must be object")
+                    continue
+                mid = mu.get("id", "")
+                action = mu.get("action", "")
+                if not isinstance(mid, str) or not mid.strip():
+                    errors.append(f"memory_updates[{i}].id must be non-empty string")
+                if action not in ("add", "modify", "none"):
+                    errors.append(f"memory_updates[{i}].action must be one of add/modify/none")
+
+    return errors
+
+
+def validate_pack(data: Dict[str, Any], expect_task_id: Optional[str]) -> List[str]:
+    errors: List[str] = []
+
+    if not isinstance(data, dict):
+        return ["pack must be a JSON object"]
+
+    if data.get("pack_version") != 1:
+        errors.append("pack_version must be 1")
+
+    pack_id = data.get("pack_id", "")
+    if not isinstance(pack_id, str) or not _is_hex(pack_id, 64):
+        errors.append("pack_id must be 64-hex sha256 string")
+
+    task_id = data.get("task_id", "")
+    if not isinstance(task_id, str) or not task_id.strip():
+        errors.append("task_id must be non-empty string")
+    if expect_task_id and task_id != expect_task_id:
+        errors.append(f"task_id mismatch: expect {expect_task_id!r}, got {task_id!r}")
+
+    repo_commit_raw = data.get("repo_commit", "")
+    if not isinstance(repo_commit_raw, str) or not repo_commit_raw.strip():
+        errors.append("repo_commit must be non-empty string")
+        repo_commit = None
+    else:
+        try:
+            repo_commit = _resolve_commit(repo_commit_raw.strip())
+        except Exception as e:
+            errors.append(f"repo_commit invalid: {e}")
+            repo_commit = None
+
+    memory_tree_declared = data.get("memory_tree", None)
+    if memory_tree_declared not in (None, "") and (
+        not isinstance(memory_tree_declared, str) or not _is_hex_range(memory_tree_declared, 7, 40)
+    ):
+        errors.append("memory_tree must be 7-40 hex string, null, or empty string")
+    memory_tree_declared_norm = memory_tree_declared if isinstance(memory_tree_declared, str) and memory_tree_declared.strip() else None
+
+    memory_tree_actual: Optional[str] = None
+    memory_tree_computed = False
+    if repo_commit is not None:
+        try:
+            memory_tree_actual = _tree_sha(repo_commit, ".ai/memory")
+            memory_tree_computed = True
+        except Exception as e:
+            errors.append(f"cannot compute memory_tree at {repo_commit}: {e}")
+            memory_tree_actual = None
+        if (memory_tree_actual or None) != (memory_tree_declared_norm or None):
+            errors.append(f"memory_tree mismatch: expect {memory_tree_actual!r}, got {memory_tree_declared_norm!r}")
+
+    items = data.get("items", None)
+    if not isinstance(items, list):
+        errors.append("items must be list")
+        return errors
+
+    seen: Set[Tuple[str, str]] = set()
+    last_key: Optional[Tuple[str, str]] = None
+    manifest: List[Tuple[str, str, str]] = []
+    manifest_ok = True
+
+    for idx, it in enumerate(items):
+        if not isinstance(it, dict):
+            errors.append(f"items[{idx}] must be object")
+            continue
+
+        kind = it.get("kind", "")
+        path = it.get("path", "")
+        blob = it.get("git_blob", "")
+        sha = it.get("sha256", "")
+        size = it.get("size", None)
+        content_b64 = it.get("content_b64", "")
+
+        if not isinstance(kind, str) or not kind.strip():
+            errors.append(f"items[{idx}].kind must be non-empty string")
+            manifest_ok = False
+            continue
+        if kind not in PACK_ITEM_KINDS:
+            errors.append(f"items[{idx}].kind must be one of {sorted(PACK_ITEM_KINDS)}")
+            manifest_ok = False
+        if not isinstance(path, str) or not path.strip():
+            errors.append(f"items[{idx}].path must be non-empty string")
+            manifest_ok = False
+            continue
+
+        try:
+            path_norm = _norm_rel_path(path)
+        except Exception as e:
+            errors.append(f"items[{idx}].path invalid: {e}")
+            manifest_ok = False
+            continue
+        if path_norm != path:
+            errors.append(f"items[{idx}].path must be canonical (got {path!r}, normalized {path_norm!r})")
+            manifest_ok = False
+
+        key = (kind, path_norm)
+        if last_key is not None and key < last_key:
+            errors.append("items must be sorted by (kind, path) for canonical pack output")
+            last_key = key
+        else:
+            last_key = key
+
+        if key in seen:
+            errors.append(f"duplicate item (kind,path) at items[{idx}]: {key}")
+        else:
+            seen.add(key)
+
+        if not isinstance(blob, str) or not _is_hex(blob, 40):
+            errors.append(f"items[{idx}].git_blob must be 40-hex string")
+            manifest_ok = False
+        if not isinstance(sha, str) or not _is_hex(sha, 64):
+            errors.append(f"items[{idx}].sha256 must be 64-hex string")
+            manifest_ok = False
+        if not isinstance(size, int) or size < 0:
+            errors.append(f"items[{idx}].size must be non-negative integer")
+            manifest_ok = False
+        if not isinstance(content_b64, str) or not content_b64:
+            errors.append(f"items[{idx}].content_b64 must be non-empty string")
+            manifest_ok = False
+
+        decoded: Optional[bytes] = None
+        if isinstance(content_b64, str) and content_b64:
+            try:
+                decoded = base64.b64decode(content_b64.encode("ascii"), validate=True)
+            except Exception as e:
+                errors.append(f"items[{idx}].content_b64 invalid base64: {e}")
+                decoded = None
+                manifest_ok = False
+
+        if decoded is not None:
+            if isinstance(size, int) and size != len(decoded):
+                errors.append(f"items[{idx}].size mismatch: expect {len(decoded)}, got {size}")
+            if isinstance(sha, str) and _is_hex(sha, 64):
+                sha_actual = _sha256_hex(decoded)
+                if sha_actual != sha:
+                    errors.append(f"items[{idx}].sha256 mismatch: expect {sha_actual}, got {sha}")
+
+        if repo_commit is not None and isinstance(blob, str) and _is_hex(blob, 40):
+            try:
+                obj_type = _object_type(repo_commit, path_norm)
+                if obj_type != "blob":
+                    errors.append(f"items[{idx}].path is not a file/blob at {repo_commit}: {path_norm} (got {obj_type})")
+                else:
+                    blob_actual = _blob_sha(repo_commit, path_norm)
+                    if blob_actual != blob:
+                        errors.append(f"items[{idx}].git_blob mismatch: expect {blob_actual}, got {blob}")
+                    if decoded is not None:
+                        data_actual = _read_path(repo_commit, path_norm)
+                        if data_actual != decoded:
+                            errors.append(f"items[{idx}].content mismatch vs git at {repo_commit}: {path_norm}")
+            except Exception as e:
+                errors.append(f"items[{idx}] cannot verify against git: {e}")
+
+        if isinstance(blob, str) and _is_hex(blob, 40):
+            manifest.append((kind, path_norm, blob))
+
+    if repo_commit is not None and memory_tree_computed and manifest and manifest_ok:
+        try:
+            manifest_sorted = sorted(manifest, key=lambda x: (x[0], x[1]))
+            manifest_for_id = "".join([f"{p}\n{b}\n" for _k, p, b in manifest_sorted])
+            pack_id_src = (repo_commit + "\n" + (memory_tree_actual or "") + "\n" + manifest_for_id).encode("utf-8")
+            pack_id_actual = _sha256_hex(pack_id_src)
+            if isinstance(pack_id, str) and _is_hex(pack_id, 64) and pack_id_actual != pack_id:
+                errors.append(f"pack_id mismatch: expect {pack_id_actual}, got {pack_id}")
+        except Exception as e:
+            errors.append(f"cannot recompute pack_id: {e}")
 
     return errors
 
@@ -560,6 +843,20 @@ def cmd_validate_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_validate_pack(args: argparse.Namespace) -> int:
+    with open(args.pack, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    errors = validate_pack(data=data, expect_task_id=args.task_id)
+    if errors:
+        for e in errors:
+            print(f"ERROR: {args.pack}: {e}", file=sys.stderr)
+        return 1
+
+    print(f"OK: context pack valid: {args.pack}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="memctl")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -582,6 +879,11 @@ def main() -> int:
     p_rep.add_argument("--report", required=True)
     p_rep.add_argument("--task-id")
     p_rep.set_defaults(func=cmd_validate_report)
+
+    p_vpack = sub.add_parser("validate-pack", help="validate context pack integrity")
+    p_vpack.add_argument("--pack", required=True)
+    p_vpack.add_argument("--task-id")
+    p_vpack.set_defaults(func=cmd_validate_pack)
 
     args = parser.parse_args()
     return args.func(args)

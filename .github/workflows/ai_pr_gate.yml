@@ -46,15 +46,20 @@ jobs:
         run: echo "Bypassed AI gate due to label ${{ steps.cfg.outputs.bypass_label }}."
 
       - name: Extract Task ID from PR body
-        if: steps.cfg.outputs.should_enforce == 'true' && steps.cfg.outputs.require_task_id == 'true'
+        if: steps.cfg.outputs.should_enforce == 'true'
         id: task
         uses: actions/github-script@v7
         with:
           script: |
             const body = context.payload.pull_request.body || "";
             const m = body.match(/Task ID:\s*(TASK-[A-Za-z0-9-]+)/);
-            if (!m) core.setFailed("Missing `Task ID: TASK-...` in PR body (required for label=ai).");
-            else core.setOutput("task_id", m[1]);
+            const required = "${{ steps.cfg.outputs.require_task_id }}" === "true";
+            if (!m) {
+              core.setOutput("task_id", "");
+              if (required) core.setFailed("Missing `Task ID: TASK-...` in PR body (required for label=ai).");
+            } else {
+              core.setOutput("task_id", m[1]);
+            }
 
       - name: Validate memory
         if: steps.cfg.outputs.should_enforce == 'true'
@@ -65,11 +70,15 @@ jobs:
         run: python .ai/tools/memctl.py check-stale --commit "${{ github.sha }}"
 
       - name: Build pack for PR HEAD (artifact)
-        if: steps.cfg.outputs.should_enforce == 'true'
+        if: steps.cfg.outputs.should_enforce == 'true' && steps.task.outputs.task_id != ''
         run: python .ai/tools/memctl.py build-pack --commit "${{ github.event.pull_request.head.sha }}" --task-id "${{ steps.task.outputs.task_id }}" --out context_pack_PR_HEAD.json
 
+      - name: Validate pack artifact
+        if: steps.cfg.outputs.should_enforce == 'true' && steps.task.outputs.task_id != ''
+        run: python .ai/tools/memctl.py validate-pack --pack context_pack_PR_HEAD.json --task-id "${{ steps.task.outputs.task_id }}"
+
       - name: Verify pack determinism
-        if: steps.cfg.outputs.should_enforce == 'true'
+        if: steps.cfg.outputs.should_enforce == 'true' && steps.task.outputs.task_id != ''
         shell: bash
         run: |
           set -euo pipefail
@@ -114,6 +123,15 @@ jobs:
           ENFORCEMENT="${{ steps.cfg.outputs.enforcement }}"
           REQUIRE_REPORT="${{ steps.cfg.outputs.require_agent_report }}"
 
+          if [[ -z "$TASK" ]]; then
+            if [[ "$ENFORCEMENT" == "hard" || "$REQUIRE_REPORT" == "true" ]]; then
+              echo "Missing Task ID, but agent report validation is required (hard mode or require_agent_report=true)." >&2
+              exit 1
+            fi
+            echo "WARN: Missing Task ID; skipping agent report validation (soft mode)." >&2
+            exit 0
+          fi
+
           reports=()
           while IFS= read -r f; do
             [[ -n "$f" ]] || continue
@@ -149,7 +167,7 @@ jobs:
           done
 
       - uses: actions/upload-artifact@v4
-        if: steps.cfg.outputs.should_enforce == 'true'
+        if: steps.cfg.outputs.should_enforce == 'true' && steps.task.outputs.task_id != ''
         with:
           name: context_pack_${{ steps.task.outputs.task_id }}_${{ github.event.pull_request.head.sha }}
           path: context_pack_PR_HEAD.json

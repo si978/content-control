@@ -21,6 +21,7 @@ This repository uses **repo-first curated memory** and **deterministic context p
 - Validate memory: `python .ai/tools/memctl.py validate --commit HEAD`
 - Stale check: `python .ai/tools/memctl.py check-stale --commit HEAD`
 - Build pack: `python .ai/tools/memctl.py build-pack --commit HEAD --task-id TASK-... --out context_pack.json`
+- Validate pack: `python .ai/tools/memctl.py validate-pack --pack context_pack.json --task-id TASK-...`
 
 ## Configuration
 - `.ai/config.json` controls PR gate enforcement (`soft` -> warn, `hard` -> fail).

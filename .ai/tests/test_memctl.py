@@ -381,5 +381,115 @@ class TestMemctlNormRelPath(unittest.TestCase):
             memctl._norm_rel_path(r"C:\x")
 
 
+class TestMemctlValidatePack(unittest.TestCase):
+    def test_validate_pack_accepts_generated_pack(self) -> None:
+        with _temp_git_repo() as repo, _chdir(repo):
+            _write_text(repo, ".ai/evidence/conversations/test.md", "hi\n")
+            _write_json(
+                repo,
+                ".ai/memory/constraints/CONSTRAINT-0001/meta.json",
+                _constraint_meta("CONSTRAINT-0001", key="K1", evidence_ref=".ai/evidence/conversations/test.md"),
+            )
+            _write_text(repo, ".ai/memory/constraints/CONSTRAINT-0001/body.md", "constraint\n")
+            _write_text(repo, "src/a.txt", "A\n")
+            _write_json(
+                repo,
+                ".ai/memory/tasks/TASK-0001/meta.json",
+                _task_meta("TASK-0001", evidence_ref=".ai/evidence/conversations/test.md", pack={"include_paths": ["src"], "include_memory_ids": []}),
+            )
+            _write_text(repo, ".ai/memory/tasks/TASK-0001/body.md", "task\n")
+            head = _commit_all(repo, "baseline")
+
+            items, by_id = memctl.load_memory(head)
+            pack = memctl.build_pack(head, "TASK-0001", items, by_id)
+
+            with tempfile.TemporaryDirectory() as out:
+                pack_path = os.path.join(out, "pack.json")
+                memctl._write_json(pack, pack_path)
+                loaded = json.loads(pathlib.Path(pack_path).read_text(encoding="utf-8"))
+
+            errors = memctl.validate_pack(data=loaded, expect_task_id="TASK-0001")
+            self.assertEqual(errors, [])
+
+    def test_validate_pack_detects_tampered_content(self) -> None:
+        with _temp_git_repo() as repo, _chdir(repo):
+            _write_text(repo, ".ai/evidence/conversations/test.md", "hi\n")
+            _write_json(
+                repo,
+                ".ai/memory/tasks/TASK-0001/meta.json",
+                _task_meta("TASK-0001", evidence_ref=".ai/evidence/conversations/test.md", pack={"include_paths": [".ai/evidence/conversations/test.md"], "include_memory_ids": []}),
+            )
+            head = _commit_all(repo, "baseline")
+
+            items, by_id = memctl.load_memory(head)
+            pack = memctl.build_pack(head, "TASK-0001", items, by_id)
+
+            tampered = json.loads(json.dumps(pack))
+            tampered["items"][0]["content_b64"] = base64.b64encode(b"tampered\n").decode("ascii")
+
+            errors = memctl.validate_pack(data=tampered, expect_task_id="TASK-0001")
+            self.assertTrue(any("content mismatch" in e or "sha256 mismatch" in e for e in errors), errors)
+
+    def test_validate_pack_rejects_unsorted_items(self) -> None:
+        with _temp_git_repo() as repo, _chdir(repo):
+            _write_text(repo, ".ai/evidence/conversations/test.md", "hi\n")
+            _write_text(repo, "src/a.txt", "A\n")
+            _write_text(repo, "src/b.txt", "B\n")
+            _write_json(
+                repo,
+                ".ai/memory/tasks/TASK-0001/meta.json",
+                _task_meta("TASK-0001", evidence_ref=".ai/evidence/conversations/test.md", pack={"include_paths": ["src"], "include_memory_ids": []}),
+            )
+            head = _commit_all(repo, "baseline")
+
+            items, by_id = memctl.load_memory(head)
+            pack = memctl.build_pack(head, "TASK-0001", items, by_id)
+
+            if len(pack["items"]) < 2:
+                self.skipTest("pack too small to reorder")
+            reordered = json.loads(json.dumps(pack))
+            reordered["items"] = list(reversed(reordered["items"]))
+
+            errors = memctl.validate_pack(data=reordered, expect_task_id="TASK-0001")
+            self.assertTrue(any("items must be sorted" in e for e in errors), errors)
+
+
+class TestMemctlRobustnessEdges(unittest.TestCase):
+    def test_validate_memory_invalid_evidence_path_reports_error(self) -> None:
+        with _temp_git_repo() as repo, _chdir(repo):
+            _write_json(
+                repo,
+                ".ai/memory/constraints/CONSTRAINT-0001/meta.json",
+                _constraint_meta("CONSTRAINT-0001", key="K1", evidence_ref="../oops"),
+            )
+            head = _commit_all(repo, "bad evidence")
+
+            items, by_id = memctl.load_memory(head)
+            errors = memctl.validate_memory(head, items, by_id)
+            self.assertTrue(any("invalid repo_path" in e for e in errors), errors)
+
+    def test_build_pack_expands_evidence_directory(self) -> None:
+        with _temp_git_repo() as repo, _chdir(repo):
+            _write_text(repo, ".ai/evidence/d/a.txt", "A\n")
+            _write_text(repo, ".ai/evidence/d/b.txt", "B\n")
+            _write_json(
+                repo,
+                ".ai/memory/constraints/CONSTRAINT-0001/meta.json",
+                _constraint_meta("CONSTRAINT-0001", key="K1", evidence_ref=".ai/evidence/d"),
+            )
+            _write_json(
+                repo,
+                ".ai/memory/tasks/TASK-0001/meta.json",
+                _task_meta("TASK-0001", evidence_ref=".ai/evidence/d/a.txt", pack={"include_paths": [], "include_memory_ids": []}),
+            )
+            head = _commit_all(repo, "baseline")
+
+            items, by_id = memctl.load_memory(head)
+            pack = memctl.build_pack(head, "TASK-0001", items, by_id)
+            evidence_paths = {i["path"] for i in pack["items"] if i["kind"] == "evidence"}
+            self.assertIn(".ai/evidence/d/a.txt", evidence_paths)
+            self.assertIn(".ai/evidence/d/b.txt", evidence_paths)
+
+
 if __name__ == "__main__":
     unittest.main()

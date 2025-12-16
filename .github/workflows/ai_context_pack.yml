@@ -30,6 +30,7 @@ jobs:
           if [ -z "$COMMIT" ]; then COMMIT="${{ github.sha }}"; fi
           python .ai/tools/memctl.py build-pack --commit "$COMMIT" --task-id "${{ inputs.task_id }}" --out "context_pack.json"
           python .ai/tools/memctl.py build-pack --commit "$COMMIT" --task-id "${{ inputs.task_id }}" --out "context_pack_2.json"
+          python .ai/tools/memctl.py validate-pack --pack "context_pack.json" --task-id "${{ inputs.task_id }}"
           python - <<'PY'
           import hashlib
           a = open("context_pack.json","rb").read()

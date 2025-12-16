@@ -43,6 +43,8 @@ jobs:
           TASK="TASK-2025-12-15-0001"
           python .ai/tools/memctl.py build-pack --commit "${{ github.sha }}" --task-id "$TASK" --out pack_1.json
           python .ai/tools/memctl.py build-pack --commit "${{ github.sha }}" --task-id "$TASK" --out pack_2.json
+          python .ai/tools/memctl.py validate-pack --pack pack_1.json --task-id "$TASK"
+          python .ai/tools/memctl.py validate-pack --pack pack_2.json --task-id "$TASK"
           python - <<'PY'
           import hashlib
           a = open("pack_1.json","rb").read()
