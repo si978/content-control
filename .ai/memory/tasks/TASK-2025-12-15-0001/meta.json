@@ -18,7 +18,8 @@
   "pack": {
     "include_memory_ids": [
       "ADR-0001",
-      "CONSTRAINT-0001"
+      "CONSTRAINT-0001",
+      "RUNBOOK-0001"
     ],
     "include_paths": [
       ".ai/README.md",

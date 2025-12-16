@@ -15,7 +15,7 @@
     ".ai/tools/",
     ".github/workflows/"
   ],
-  "verification_note": "Touched after adding validate-pack + stricter validations/workflow checks to reset stale baseline.",
+  "verification_note": "Touched after adding RUNBOOK-0001 + codex usage docs to reset stale baseline.",
   "evidence": [
     {
       "kind": "repo_path",

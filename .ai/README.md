@@ -25,3 +25,7 @@ This repository uses **repo-first curated memory** and **deterministic context p
 
 ## Configuration
 - `.ai/config.json` controls PR gate enforcement (`soft` -> warn, `hard` -> fail).
+
+## Codex CLI Workflow (V1)
+- 建一个 `TASK`（含 `pack.include_paths`）→ `build-pack` 得到 `context_pack.json` → 在 Codex CLI 里要求先读取该 pack 并“缺文件先提清单” → 提 PR 打 `ai` 标签并写 `Task ID: ...`。
+- 可参考 `RUNBOOK-0001`：`.ai/memory/runbooks/RUNBOOK-0001-codex-cli-workflow/body.md`

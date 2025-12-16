@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "RUNBOOK-0001",
+  "type": "runbook",
+  "status": "active",
+  "title": "Codex CLI 的 AI 开发工作流（V1）",
+  "scope": {
+    "paths": [
+      "**"
+    ]
+  },
+  "watch_paths": [
+    ".ai/tools/",
+    ".github/workflows/"
+  ],
+  "evidence": [
+    {
+      "kind": "repo_path",
+      "ref": ".ai/evidence/conversations/2025-12-16-codex-cli-usage.md"
+    }
+  ]
+}
+
