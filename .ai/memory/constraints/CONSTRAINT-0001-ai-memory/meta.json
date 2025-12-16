@@ -11,11 +11,16 @@
     ]
   },
   "watch_paths": [
-    ".ai/memory/",
     ".ai/tools/",
-    ".github/workflows/"
+    ".ai/schemas/",
+    ".ai/config.json",
+    ".ai/README.md",
+    ".github/workflows/",
+    ".github/PULL_REQUEST_TEMPLATE/ai.md",
+    "CODEOWNERS",
+    "AGENTS.md"
   ],
-  "verification_note": "Touched after adding RUNBOOK-0001 + codex usage docs to reset stale baseline.",
+  "verification_note": "Watch paths narrowed to system surfaces (not .ai/memory) to avoid per-task false staleness; refreshed baseline.",
   "evidence": [
     {
       "kind": "repo_path",

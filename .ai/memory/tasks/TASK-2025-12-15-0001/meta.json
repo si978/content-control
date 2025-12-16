@@ -22,6 +22,7 @@
       "RUNBOOK-0001"
     ],
     "include_paths": [
+      "docs/requirements.md",
       ".ai/README.md",
       ".ai/config.json",
       ".ai/schemas/agent_report.schema.json",
@@ -36,6 +37,10 @@
     ]
   },
   "evidence": [
+    {
+      "kind": "repo_path",
+      "ref": "docs/requirements.md"
+    },
     {
       "kind": "repo_path",
       "ref": ".ai/evidence/conversations/2025-12-15-ai-memory-design.md"
